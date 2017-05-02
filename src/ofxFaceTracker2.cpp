@@ -176,35 +176,42 @@ void ofxFaceTracker2::runFaceDetector(bool lockMutex){
     detectorRoi.height= (int) ofClamp(detectorRoi.height,1, gray.rows - detectorRoi.y);
     
     float scale = 1;
-
-    // If there is no resize, or if image is below max face detector pixel size, then just crop to ROI size
-    if(faceDetectorImageSize == -1 || detectorRoi.width*detectorRoi.height <= faceDetectorImageSize){
-        gray(detectorRoi).copyTo(threadGray);
+    
+    if(0 <= detectorRoi.x && 0 <= detectorRoi.width && detectorRoi.x + detectorRoi.width <= gray.cols && 0 <= detectorRoi.y && 0 <= detectorRoi.height && detectorRoi.y + detectorRoi.height <= gray.rows)
+    {
+        // If there is no resize, or if image is below max face detector pixel size, then just crop to ROI size
+        if(faceDetectorImageSize == -1 || detectorRoi.width*detectorRoi.height <= faceDetectorImageSize){
+            gray(detectorRoi).copyTo(threadGray);
+        }
+        // Otherwise scale image to fit within max face detector pixel size
+        else {
+            scale = sqrt((float) faceDetectorImageSize / (detectorRoi.width*detectorRoi.height));
+            resize(gray(detectorRoi), threadGray, cv::Size(), scale, scale, cv::INTER_NEAREST);
+        }
+        
+        if(lockMutex) mutex.unlock();
+        
+        // Run face detector (the slow part)
+        dlib::cv_image<unsigned char> cvimg(threadGray);
+        std::vector<dlib::rectangle> detectedFaceRectangles = faceDetector(cvimg);
+        
+        if(lockMutex) mutex.lock();
+        
+        vector<cv::Rect> rects;
+        // Store face detector data
+        float s = 1.0f/scale;
+        for(auto rect : detectedFaceRectangles){
+            rects.push_back(cv::Rect(detectorRoi.x + rect.left() * s,
+                                     detectorRoi.y + rect.top()  * s,
+                                     rect.width()  * s,
+                                     rect.height() * s));
+        }
+        faceRectanglesTracker.track(rects);
     }
-    // Otherwise scale image to fit within max face detector pixel size
-    else {
-        scale = sqrt((float) faceDetectorImageSize / (detectorRoi.width*detectorRoi.height));
-        resize(gray(detectorRoi), threadGray, cv::Size(), scale, scale, cv::INTER_NEAREST);
+    else
+    {
+        
     }
-    
-    if(lockMutex) mutex.unlock();
-    
-    // Run face detector (the slow part)
-    dlib::cv_image<unsigned char> cvimg(threadGray);
-    std::vector<dlib::rectangle> detectedFaceRectangles = faceDetector(cvimg);
-    
-    if(lockMutex) mutex.lock();
-    
-    vector<cv::Rect> rects;
-    // Store face detector data
-    float s = 1.0f/scale;
-    for(auto rect : detectedFaceRectangles){
-        rects.push_back(cv::Rect(detectorRoi.x + rect.left() * s,
-                                 detectorRoi.y + rect.top()  * s,
-                                 rect.width()  * s,
-                                 rect.height() * s));
-    }
-    faceRectanglesTracker.track(rects);
     
     if(lockMutex) mutex.unlock();
 }
